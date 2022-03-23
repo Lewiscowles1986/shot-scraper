@@ -465,6 +465,16 @@ def take_shot(context_or_page, shot, return_bytes=False, use_existing_page=False
         if shot.get("height"):
             full_page = False
 
+    if selectors:
+        get_height_js = _get_selector_height_javascript(selectors)
+        element_total_height = _evaluate_js(page, get_height_js) + (padding * len(selectors))
+        if element_total_height > viewport.get('height'):
+            viewport = {
+                "width": shot.get("width") or 1280,
+                "height": element_total_height,
+            }
+            page.set_viewport_size(viewport)
+
     if not use_existing_page:
         page.goto(url)
 
@@ -490,21 +500,39 @@ def take_shot(context_or_page, shot, return_bytes=False, use_existing_page=False
             selectors, padding
         )
         _evaluate_js(page, selector_javascript)
+        bytes_of_shot = page.locator(selector_to_shoot).screenshot(**screenshot_args)
         if return_bytes:
-            return page.locator(selector_to_shoot).screenshot(**screenshot_args)
+            return bytes_of_shot
         else:
-            page.locator(selector_to_shoot).screenshot(**screenshot_args)
             message = "Screenshot of '{}' on '{}' written to '{}'".format(
                 ", ".join(selectors), url, output
             )
     else:
         # Whole page
+        bytes_of_shot = page.screenshot(**screenshot_args)
         if return_bytes:
-            return page.screenshot(**screenshot_args)
+            return bytes_of_shot
         else:
-            page.screenshot(**screenshot_args)
             message = "Screenshot of '{}' written to '{}'".format(url, output)
     click.echo(message, err=True)
+
+
+def _get_selector_height_javascript(selectors):
+    selector_javascript = textwrap.dedent(
+        """
+    new Promise(getDimensions => {
+        let els = %s.map(s => document.querySelector(s).getBoundingClientRect())
+            .reduce((outputHeight, rect) => {
+                outputHeight += rect.top - rect.bottom;
+            }, 0);
+        setTimeout(() => {
+            getDimensions();
+        }, 300);
+    });
+    """
+        % (json.dumps(selectors))
+    )
+    return selector_javascript
 
 
 def _selector_javascript(selectors, padding=0):
